@@ -1,4 +1,7 @@
-const { ApolloServer, gql } = require('apollo-server');
+// 取得 ForbiddenError 作為錯誤訊息
+const { ApolloServer, gql, ForbiddenError } = require('apollo-server')
+// 引入.env
+require('dotenv').config()
 
 // fake data
 // const meId = 2;
@@ -14,7 +17,7 @@ const users = [
   {
     id: 2,
     email: 'kevin@test.com',
-    passwrod: '$2b$04$uy73IdY9HVZrIENuLwZ3k./0azDvlChLyY1ht/73N4YfEZntgChbe', // 123456
+    password: '$2b$04$uy73IdY9HVZrIENuLwZ3k./0azDvlChLyY1ht/73N4YfEZntgChbe', // 123456
     name: 'Kevin',
     age: 40,
     friendIds: [1]
@@ -54,9 +57,16 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 // 定義 bcrypt 加密所需 saltRounds 次數
-const SALT_ROUNDS = 2;
+const SALT_ROUNDS = Number(process.env.SALT_ROUNDS);
 // 定義 jwt 所需 secret (可隨便打)
-const SECRET = 'just_a_random_secret';
+const SECRET = process.env.SECRET;
+
+
+// -- 有無認證
+const isAuthenticated = resolverFunc => (parent, args, context) => {
+  if (!context.me) throw new ForbiddenError('Not logged in.');
+  return resolverFunc.apply(null, [parent, args, context]);
+};
 
 
 // -- helper functions
@@ -78,6 +88,16 @@ const addPost = ({ authorId, title, body }) =>
     likeGiverIds: [],
     createdAt: new Date().toISOString()
   });
+
+// 刪除貼文＆只有貼文作者本人才能刪除
+const deletePost = (postId) => posts.splice(posts.findIndex(post => post.id === postId), 1)[0];
+const isPostAuthor = resolverFunc => (parent, args, context) => {
+  const { postId } = args;
+  const { me } = context;
+  const isAuthor = findPostByPostId(postId).authorId === me.id;
+  if (!isAuthor) throw new ForbiddenError('Only Author Can Delete this Post');
+  return resolverFunc.applyFunc(parent, args, context);
+}
 
 // 加密 & 新增使用者
 const hash = text => bcrypt.hash(text, SALT_ROUNDS);
@@ -153,6 +173,8 @@ const typeDefs = gql`
     addPost(input: AddPostInput): Post,
     "喜歡貼文"
     likePost(postId: ID!): Post
+    "刪除貼文"
+    deletePost(postId: ID!): Post
   }
 `
 
@@ -160,10 +182,11 @@ const typeDefs = gql`
 const resolvers = {
   Query: {
     // 更新 me
-    me: (root, args, { me }) => {
-      if (!me) throw new Error ('Please Log In First');
-      return findUserByUserId(me.id)
-    },
+    // me: (root, args, { me }) => {
+    //   if (!me) throw new Error ('Please Log In First');
+    //   return findUserByUserId(me.id)
+    // },
+    me: isAuthenticated((parent, args, { me }) => findUserByUserId(me.id)),
     users: () => users,
     user: (root, { name }, context) => findUserByName(name),
     posts: () => posts,
@@ -194,15 +217,15 @@ const resolvers = {
       // 3. 成功則回傳 token
       return { token: await createToken(user) };
     },
-    updateMyInfo: (parent, { input }, { me }) => {
+    updateMyInfo: isAuthenticated((parent, { input }, { me }) => {
       // 過濾空值
       const data = ["name", "age"].reduce(
         (obj, key) => (input[key] ? { ...obj, [key]: input[key] } : obj),
         {}
       );
       return updateUserInfo(me.id, data);
-    },
-    addFriend: (parent, { userId }, { me: { id: meId } }) => {
+    }),
+    addFriend: isAuthenticated((parent, { userId }, { me: { id: meId } }) => {
       if (!me) throw new Error ('Plz Log In First');
       const me = findUserByUserId(meId);
       if (me.friendIds.include(userId))
@@ -215,13 +238,13 @@ const resolvers = {
       updateUserInfo(userId, { friendIds: friend.friendIds.concat(meId) });
 
       return newMe;
-    },
-    addPost: (parent, { input }, { me }) => {
+    }),
+    addPost: isAuthenticated((parent, { input }, { me }) => {
       if (!me) throw new Error ('Plz Log In First');
       const { title, body } = input;
       return addPost({ authorId: me.id, title, body });
-    },
-    likePost: (parent, { postId }, { me }) => {
+    }),
+    likePost: isAuthenticated((parent, { postId }, { me }) => {
       if (!me) throw new Error ('Plz Log In First');
       const post = findPostByPostId(postId);
 
@@ -236,7 +259,10 @@ const resolvers = {
       return updatePost(postId, {
         likeGiverIds: post.likeGiverIds.filter(id => id === me.id)
       });
-    }
+    }),
+    deletePost: isAuthenticated(
+      isPostAuthor((root, { postId }, { me }) => deletePost(postId))
+    ),
   },
   // --
   User: {
