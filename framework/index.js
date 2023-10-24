@@ -5,6 +5,7 @@ const { userModel, postModel } = require('./models/index.js')
 // 引入.env
 require('dotenv').config()
 
+// ----- 建立 .env 檔案並在其中設定以下兩個變數 -----
 // 定義 bcrypt 加密所需 saltRounds 次數
 const SALT_ROUNDS = Number(process.env.SALT_ROUNDS);
 // 定義 jwt 所需 secret (可隨便打)
@@ -63,6 +64,8 @@ const server = new ApolloServer({
   // -- 登入 token 用 context 傳
   context: async ({ req }) => {
     const context = {
+      secret: SECRET,
+      saltRounds: SALT_ROUNDS,
       userModel,
       postModel
     }

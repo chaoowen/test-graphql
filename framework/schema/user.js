@@ -1,6 +1,7 @@
 const { gql, ForbiddenError, AuthenticationError } = require('apollo-server')
 const bcrypt = require('bcrypt')
-const jwt = require('jsonwebtoken')
+const jwt = require('jsonwebtoken');
+const { userModel } = require('../models');
 
 const typeDefs = gql`
   type User {
@@ -44,9 +45,9 @@ const typeDefs = gql`
 
 // ------- helper functions -------
 // 加密 & 新增使用者
-const hash = text => bcrypt.hash(text, SALT_ROUNDS);
-const createToken = ({ id, email, name }) => 
-  jwt.sign({ id, email, name }, SECRET, { expiresIn: '1d' });
+const hash = (text, saltRounds) => bcrypt.hash(text, saltRounds);
+const createToken = ({ id, email, name }, secret) => 
+  jwt.sign({ id, email, name }, secret, { expiresIn: '1d' });
 
 // 有無認證
 const isAuthenticated = resolverFunc => (parent, args, context) => {
@@ -65,27 +66,26 @@ const resolvers = {
   // -- mutation
   Mutation: {
     // ------- 註冊 -------
-    signUp: async (root, { name, email, password }, { userModel }) => {
+    signUp: async (root, { name, email, password }, { userModel, saltRounds }) => {
       // 1. 檢查不能有重複註冊 email
-      const isUserEmailDuplicate = users.some(user => user.email === email);
-      if (isUserEmailDuplicate) throw new Error('User Email Duplicate');
+      if (userModel.isUserEmailDuplicate(email)) throw new Error('User Email Duplicate');
       // 2. 將 passwrod 加密再存進去
-      const hashedPassword = await hash(password, SALT_ROUNDS);
+      const hashedPassword = await hash(password, saltRounds);
       // 3. 建立新 user
       return userModel.addUser({ name, email, password: hashedPassword });
     },
     // ------- 登入 -------
-    login: async (root, { email, password }, context) => {
+    login: async (root, { email, password }, { secret }) => {
       // 1. 透過 email 找到相對應的 user
-      const user = users.find(user => user.email === email);
+      const user = userModel.findUserByEmail(email);
       if (!user) throw new Error('Email Account Not Exists');
 
       // 2. 將傳進來的 password 與資料庫存的 user.password 做比對
       const passwordIsValid = await bcrypt.compare(password, user.password);
       if (!passwordIsValid) throw new Error('Wrong Password');
-
+      
       // 3. 成功則回傳 token
-      return { token: await createToken(user) };
+      return { token: await createToken(user, secret) };
     },
     updateMyInfo: isAuthenticated((parent, { input }, { me, userModel }) => {
       // 過濾空值

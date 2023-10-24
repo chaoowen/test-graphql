@@ -29,6 +29,8 @@ module.exports = {
   findUserByUserId: userId => users.find(user => user.id === Number(userId)),
   filterUsersByUserIds: userIds => users.filter(user => userIds.includes(user.id)),
   findUserByName: name => users.find(user => user.name === name),
+  findUserByEmail: email => users.find(user => user.email === email),
+  isUserEmailDuplicate: email => users.some(user => user.email === email),
   updateUserInfo: (userId, data) => Object.assign(findUserByUserId(userId), data),
   addUser: ({ name, email, password }) => (
     users[users.length] = {
