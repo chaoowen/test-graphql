@@ -1,0 +1,11 @@
+
+query ($date: Date!) {
+  now
+  parseValueDemo: isFriday(date: 1540791381379)
+  parseLiteralDemo:isFriday(date: $date)
+}
+&
+VARIABLES
+{
+  "date": 1540791381379
+}
